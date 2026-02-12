@@ -15,7 +15,9 @@ use symphonia::core::{
 const BASE_MIDI_NOTE: i32 = 60; // C4
 const PIANO_START_MIDI: i32 = 48; // C3
 const PIANO_END_MIDI: i32 = 84; // C6
-const BASE_NOTE_SECONDS: f32 = 0.5;
+const DEFAULT_BITE_MS: u32 = 500;
+const MIN_BITE_MS: u32 = 500;
+const MAX_BITE_MS: u32 = 5_000;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions::default();
@@ -38,7 +40,7 @@ struct SampleClip {
 }
 
 impl SampleClip {
-    fn from_file(path: &Path) -> Result<Self> {
+    fn from_file(path: &Path, duration_ms: u32) -> Result<Self> {
         let file = File::open(path)
             .with_context(|| format!("failed to open selected file: {}", path.display()))?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -68,7 +70,7 @@ impl SampleClip {
             .sample_rate
             .ok_or_else(|| anyhow!("audio file missing sample rate"))?;
 
-        let target_frames = (sample_rate as f32 * BASE_NOTE_SECONDS) as usize;
+        let target_frames = (sample_rate as f32 * duration_ms as f32 / 1_000.0) as usize;
         let mut out_mono: Vec<f32> = Vec::with_capacity(target_frames);
 
         while out_mono.len() < target_frames {
@@ -117,9 +119,9 @@ impl SampleClip {
         })
     }
 
-    fn generated_test_tone() -> Self {
+    fn generated_test_tone(duration_ms: u32) -> Self {
         let sample_rate = 44_100;
-        let target_frames = (sample_rate as f32 * BASE_NOTE_SECONDS) as usize;
+        let target_frames = (sample_rate as f32 * duration_ms as f32 / 1_000.0) as usize;
         let mut out_mono = Vec::with_capacity(target_frames);
 
         for i in 0..target_frames {
@@ -202,25 +204,28 @@ struct SamplePianoApp {
     sample: Option<SampleClip>,
     selected_path: Option<PathBuf>,
     status: String,
+    bite_ms: u32,
 }
 
 impl SamplePianoApp {
     fn new(audio: AudioEngine) -> Self {
         Self {
             audio,
-            sample: Some(SampleClip::generated_test_tone()),
+            sample: Some(SampleClip::generated_test_tone(DEFAULT_BITE_MS)),
             selected_path: None,
             status: "Loaded generated 500 ms test tone. Open a file to replace it.".to_string(),
+            bite_ms: DEFAULT_BITE_MS,
         }
     }
 
     fn load_clip(&mut self, path: PathBuf) {
-        match SampleClip::from_file(&path) {
+        match SampleClip::from_file(&path, self.bite_ms) {
             Ok(sample) => {
                 self.status = format!(
-                    "Loaded {} ({} Hz). First 500 ms is now mapped across C3–C6.",
+                    "Loaded {} ({} Hz). First {} ms is now mapped across C3–C6.",
                     path.file_name().and_then(|n| n.to_str()).unwrap_or("clip"),
                     sample.sample_rate,
+                    self.bite_ms,
                 );
                 self.sample = Some(sample);
                 self.selected_path = Some(path);
@@ -228,6 +233,18 @@ impl SamplePianoApp {
             Err(err) => {
                 self.status = format!("Could not load clip: {err:#}");
             }
+        }
+    }
+
+    fn refresh_clip_for_duration(&mut self) {
+        if let Some(path) = self.selected_path.clone() {
+            self.load_clip(path);
+        } else {
+            self.sample = Some(SampleClip::generated_test_tone(self.bite_ms));
+            self.status = format!(
+                "Loaded generated {} ms test tone. Open a file to replace it.",
+                self.bite_ms
+            );
         }
     }
 
@@ -331,7 +348,7 @@ impl eframe::App for SamplePianoApp {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.heading("OpenWah – Soundbite Piano");
             ui.label(
-                "1) Load any clip  2) First ~500 ms becomes base note (C4)  3) Click piano keys to play.",
+                "1) Set bite duration  2) Load any clip  3) The chosen slice becomes base note (C4).",
             );
 
             ui.horizontal(|ui| {
@@ -344,6 +361,16 @@ impl eframe::App for SamplePianoApp {
                     ui.label(format!("Current: {}", path.display()));
                 }
             });
+
+            let slider_changed = ui
+                .add(
+                    egui::Slider::new(&mut self.bite_ms, MIN_BITE_MS..=MAX_BITE_MS)
+                        .text("Sound bite (ms)"),
+                )
+                .changed();
+            if slider_changed {
+                self.refresh_clip_for_duration();
+            }
 
             ui.label(RichText::new(&self.status).color(Color32::LIGHT_BLUE));
         });
