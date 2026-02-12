@@ -116,6 +116,27 @@ impl SampleClip {
             mono_samples: Arc::new(out_mono),
         })
     }
+
+    fn generated_test_tone() -> Self {
+        let sample_rate = 44_100;
+        let target_frames = (sample_rate as f32 * BASE_NOTE_SECONDS) as usize;
+        let mut out_mono = Vec::with_capacity(target_frames);
+
+        for i in 0..target_frames {
+            let t = i as f32 / sample_rate as f32;
+            let envelope = (1.0 - t).max(0.0).powf(2.0);
+            let fundamental = (2.0 * std::f32::consts::PI * 261.63 * t).sin();
+            let overtone = (2.0 * std::f32::consts::PI * 523.25 * t).sin() * 0.35;
+            let sub = (2.0 * std::f32::consts::PI * 130.81 * t).sin() * 0.15;
+            let sample = (fundamental + overtone + sub) * envelope * 0.6;
+            out_mono.push(sample.clamp(-1.0, 1.0));
+        }
+
+        Self {
+            sample_rate,
+            mono_samples: Arc::new(out_mono),
+        }
+    }
 }
 
 struct AudioEngine {
@@ -176,9 +197,9 @@ impl SamplePianoApp {
     fn new(audio: AudioEngine) -> Self {
         Self {
             audio,
-            sample: None,
+            sample: Some(SampleClip::generated_test_tone()),
             selected_path: None,
-            status: "Load any sound clip to build your 1-second base note.".to_string(),
+            status: "Loaded generated 1-second test tone. Open a file to replace it.".to_string(),
         }
     }
 
@@ -321,8 +342,11 @@ impl eframe::App for SamplePianoApp {
             ui.label("Piano (C3 → C5)");
             self.draw_piano(ui);
 
-            if self.sample.is_none() {
-                ui.colored_label(Color32::YELLOW, "Load a clip to enable sound.");
+            if self.selected_path.is_none() {
+                ui.colored_label(
+                    Color32::YELLOW,
+                    "Using generated test tone. Load a clip to replace it.",
+                );
             }
 
             ui.add_space(8.0);

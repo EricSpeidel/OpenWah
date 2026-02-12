@@ -4,10 +4,11 @@ A Rust desktop app that turns any short sound clip into a playable piano instrum
 
 ## What it does
 
-1. Opens a user-selected audio file (common formats supported via Symphonia).
-2. Decodes and trims/pads the clip to about **1 second** to create a base note.
-3. Maps that base note across a piano layout (C3–C5), pitch-shifting each key by semitone distance.
-4. Lets you play notes by clicking a normal piano-style keyboard layout (black keys over white keys).
+1. Starts with a generated **1-second default test tone** (created in code, no bundled binary assets).
+2. Optionally opens a user-selected audio file (common formats supported via Symphonia).
+3. Decodes and trims/pads the clip to about **1 second** to create a base note.
+4. Maps that base note across a piano layout (C3–C5), pitch-shifting each key by semitone distance.
+5. Lets you play notes by clicking a normal piano-style keyboard layout (black keys over white keys).
 
 ## Run
 
@@ -32,3 +33,7 @@ No ALSA/Linux-specific system packages are required on Windows.
 ## Linux note
 
 On Linux, audio playback via `rodio/cpal` may require ALSA development libraries (`alsa` / `alsa-lib` package family) to be installed.
+
+## CI
+
+GitHub Actions includes a `Build Windows executable` workflow that compiles a release `.exe` on `windows-latest` and uploads it as an artifact (`openwah-windows-exe`).
