@@ -20,6 +20,15 @@ In the app:
 - Click keys on the piano.
 - Or use keyboard shortcuts near middle C: `A W S E D F T G Y H U J K`.
 
+## Windows support
+
+This project is Windows-compatible and checks cleanly for both common 64-bit Windows Rust targets:
+
+- `x86_64-pc-windows-gnu`
+- `x86_64-pc-windows-msvc`
+
+No ALSA/Linux-specific system packages are required on Windows.
+
 ## Linux note
 
 On Linux, audio playback via `rodio/cpal` may require ALSA development libraries (`alsa` / `alsa-lib` package family) to be installed.

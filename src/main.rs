@@ -8,12 +8,8 @@ use anyhow::{anyhow, Context, Result};
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use rodio::{buffer::SamplesBuffer, OutputStream, OutputStreamHandle, Sink, Source};
 use symphonia::core::{
-    audio::{AudioBufferRef, SampleBuffer, Signal},
-    codecs::DecoderOptions,
-    formats::FormatOptions,
-    io::MediaSourceStream,
-    meta::MetadataOptions,
-    probe::Hint,
+    audio::SampleBuffer, codecs::DecoderOptions, formats::FormatOptions, io::MediaSourceStream,
+    meta::MetadataOptions, probe::Hint,
 };
 
 const BASE_MIDI_NOTE: i32 = 60; // C4
@@ -263,12 +259,7 @@ impl SamplePianoApp {
             let response =
                 ui.interact(key_rect, egui::Id::new(("white", key.midi)), Sense::click());
             painter.rect_filled(key_rect, 0.0, Color32::WHITE);
-            painter.rect_stroke(
-                key_rect,
-                0.0,
-                Stroke::new(1.0, Color32::BLACK),
-                egui::StrokeKind::Outside,
-            );
+            painter.rect_stroke(key_rect, 0.0, Stroke::new(1.0, Color32::BLACK));
             painter.text(
                 key_rect.center_bottom() + Vec2::new(0.0, -8.0),
                 egui::Align2::CENTER_BOTTOM,
