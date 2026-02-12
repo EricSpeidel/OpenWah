@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -14,8 +14,8 @@ use symphonia::core::{
 
 const BASE_MIDI_NOTE: i32 = 60; // C4
 const PIANO_START_MIDI: i32 = 48; // C3
-const PIANO_END_MIDI: i32 = 72; // C5
-const BASE_NOTE_SECONDS: f32 = 1.0;
+const PIANO_END_MIDI: i32 = 84; // C6
+const BASE_NOTE_SECONDS: f32 = 0.5;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions::default();
@@ -142,6 +142,7 @@ impl SampleClip {
 struct AudioEngine {
     _stream: Option<OutputStream>,
     handle: Option<OutputStreamHandle>,
+    current_sink: Mutex<Option<Sink>>,
 }
 
 impl AudioEngine {
@@ -151,6 +152,7 @@ impl AudioEngine {
         Ok(Self {
             _stream: Some(stream),
             handle: Some(handle),
+            current_sink: Mutex::new(None),
         })
     }
 
@@ -158,6 +160,7 @@ impl AudioEngine {
         Self {
             _stream: None,
             handle: None,
+            current_sink: Mutex::new(None),
         }
     }
 
@@ -173,7 +176,15 @@ impl AudioEngine {
 
         let sink = Sink::try_new(handle)?;
         sink.append(source);
-        sink.detach();
+
+        let mut active_sink = self
+            .current_sink
+            .lock()
+            .map_err(|_| anyhow!("audio sink lock poisoned"))?;
+        if let Some(previous) = active_sink.take() {
+            previous.stop();
+        }
+        *active_sink = Some(sink);
         Ok(())
     }
 }
@@ -199,7 +210,7 @@ impl SamplePianoApp {
             audio,
             sample: Some(SampleClip::generated_test_tone()),
             selected_path: None,
-            status: "Loaded generated 1-second test tone. Open a file to replace it.".to_string(),
+            status: "Loaded generated 500 ms test tone. Open a file to replace it.".to_string(),
         }
     }
 
@@ -207,7 +218,7 @@ impl SamplePianoApp {
         match SampleClip::from_file(&path) {
             Ok(sample) => {
                 self.status = format!(
-                    "Loaded {} ({} Hz). First second is now mapped across C3–C5.",
+                    "Loaded {} ({} Hz). First 500 ms is now mapped across C3–C6.",
                     path.file_name().and_then(|n| n.to_str()).unwrap_or("clip"),
                     sample.sample_rate,
                 );
@@ -320,7 +331,7 @@ impl eframe::App for SamplePianoApp {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.heading("OpenWah – Soundbite Piano");
             ui.label(
-                "1) Load any clip  2) First ~1 second becomes base note (C4)  3) Click piano keys to play.",
+                "1) Load any clip  2) First ~500 ms becomes base note (C4)  3) Click piano keys to play.",
             );
 
             ui.horizontal(|ui| {
@@ -339,7 +350,7 @@ impl eframe::App for SamplePianoApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.separator();
-            ui.label("Piano (C3 → C5)");
+            ui.label("Piano (C3 → C6)");
             self.draw_piano(ui);
 
             if self.selected_path.is_none() {

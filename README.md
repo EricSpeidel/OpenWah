@@ -4,10 +4,10 @@ A Rust desktop app that turns any short sound clip into a playable piano instrum
 
 ## What it does
 
-1. Starts with a generated **1-second default test tone** (created in code, no bundled binary assets).
+1. Starts with a generated **500 ms default test tone** (created in code, no bundled binary assets).
 2. Optionally opens a user-selected audio file (common formats supported via Symphonia).
-3. Decodes and trims/pads the clip to about **1 second** to create a base note.
-4. Maps that base note across a piano layout (C3–C5), pitch-shifting each key by semitone distance.
+3. Decodes and trims/pads the clip to about **500 ms** to create a base note.
+4. Maps that base note across a piano layout (C3–C6), pitch-shifting each key by semitone distance.
 5. Lets you play notes by clicking a normal piano-style keyboard layout (black keys over white keys).
 
 ## Run
