@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use eframe::egui::{self, Color32, RichText, Sense, Vec2};
+use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use rodio::{buffer::SamplesBuffer, OutputStream, OutputStreamHandle, Sink, Source};
 use symphonia::core::{
     audio::{AudioBufferRef, SampleBuffer, Signal},
@@ -37,9 +37,8 @@ fn main() -> eframe::Result<()> {
 }
 
 struct SampleClip {
-    channels: u16,
     sample_rate: u32,
-    samples: Arc<Vec<f32>>,
+    mono_samples: Arc<Vec<f32>>,
 }
 
 impl SampleClip {
@@ -72,15 +71,11 @@ impl SampleClip {
         let mut sample_rate = codec_params
             .sample_rate
             .ok_or_else(|| anyhow!("audio file missing sample rate"))?;
-        let mut channels = codec_params
-            .channels
-            .ok_or_else(|| anyhow!("audio file missing channel information"))?
-            .count() as u16;
 
         let target_frames = (sample_rate as f32 * BASE_NOTE_SECONDS) as usize;
-        let mut out: Vec<f32> = Vec::with_capacity(target_frames * channels as usize);
+        let mut out_mono: Vec<f32> = Vec::with_capacity(target_frames);
 
-        while out.len() / (channels as usize) < target_frames {
+        while out_mono.len() < target_frames {
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
                 Err(symphonia::core::errors::Error::IoError(_)) => break,
@@ -94,36 +89,35 @@ impl SampleClip {
             };
 
             sample_rate = decoded.spec().rate;
-            channels = decoded.spec().channels.count() as u16;
+            let channels = decoded.spec().channels.count().max(1);
 
             let mut sample_buffer =
                 SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
             sample_buffer.copy_interleaved_ref(decoded);
             let decoded_samples = sample_buffer.samples();
 
-            let frames_left = target_frames.saturating_sub(out.len() / channels as usize);
-            if frames_left == 0 {
-                break;
+            for frame in decoded_samples.chunks(channels) {
+                let mixed = frame.iter().copied().sum::<f32>() / channels as f32;
+                out_mono.push(mixed);
+                if out_mono.len() >= target_frames {
+                    break;
+                }
             }
-            let to_take = (frames_left * channels as usize).min(decoded_samples.len());
-            out.extend_from_slice(&decoded_samples[..to_take]);
         }
 
-        if out.is_empty() {
+        if out_mono.is_empty() {
             return Err(anyhow!("failed to decode audio samples from selected file"));
         }
 
-        let required_len = target_frames * channels as usize;
-        if out.len() < required_len {
-            out.resize(required_len, 0.0);
+        if out_mono.len() < target_frames {
+            out_mono.resize(target_frames, 0.0);
         } else {
-            out.truncate(required_len);
+            out_mono.truncate(target_frames);
         }
 
         Ok(Self {
-            channels,
             sample_rate,
-            samples: Arc::new(out),
+            mono_samples: Arc::new(out_mono),
         })
     }
 }
@@ -156,15 +150,23 @@ impl AudioEngine {
         };
 
         let ratio = 2.0f32.powf((midi_note - BASE_MIDI_NOTE) as f32 / 12.0);
-        let source = SamplesBuffer::new(clip.channels, clip.sample_rate, (*clip.samples).clone())
+        let source = SamplesBuffer::new(1, clip.sample_rate, (*clip.mono_samples).clone())
             .speed(ratio)
-            .amplify(0.7);
+            .amplify(0.75);
 
         let sink = Sink::try_new(handle)?;
         sink.append(source);
         sink.detach();
         Ok(())
     }
+}
+
+#[derive(Clone, Copy)]
+struct PianoKey {
+    midi: i32,
+    is_black: bool,
+    x: f32,
+    width: f32,
 }
 
 struct SamplePianoApp {
@@ -188,10 +190,9 @@ impl SamplePianoApp {
         match SampleClip::from_file(&path) {
             Ok(sample) => {
                 self.status = format!(
-                    "Loaded {} ({} Hz, {} channel(s)). First second is now mapped across the keyboard.",
+                    "Loaded {} ({} Hz). First second is now mapped across C3–C5.",
                     path.file_name().and_then(|n| n.to_str()).unwrap_or("clip"),
                     sample.sample_rate,
-                    sample.channels
                 );
                 self.sample = Some(sample);
                 self.selected_path = Some(path);
@@ -209,13 +210,106 @@ impl SamplePianoApp {
             }
         }
     }
+
+    fn piano_keys() -> Vec<PianoKey> {
+        let white_width = 44.0;
+        let black_width = 28.0;
+        let mut keys = Vec::new();
+        let mut white_index = 0;
+
+        for midi in PIANO_START_MIDI..=PIANO_END_MIDI {
+            if is_black_key(midi) {
+                let x = (white_index as f32 * white_width) - black_width * 0.5;
+                keys.push(PianoKey {
+                    midi,
+                    is_black: true,
+                    x,
+                    width: black_width,
+                });
+            } else {
+                let x = white_index as f32 * white_width;
+                keys.push(PianoKey {
+                    midi,
+                    is_black: false,
+                    x,
+                    width: white_width,
+                });
+                white_index += 1;
+            }
+        }
+
+        keys
+    }
+
+    fn draw_piano(&mut self, ui: &mut egui::Ui) {
+        let keys = Self::piano_keys();
+        let white_height = 180.0;
+        let black_height = 112.0;
+        let total_width = keys
+            .iter()
+            .filter(|k| !k.is_black)
+            .map(|k| k.width)
+            .sum::<f32>();
+
+        let (rect, _) =
+            ui.allocate_exact_size(Vec2::new(total_width, white_height), Sense::hover());
+        let painter = ui.painter_at(rect);
+
+        for key in keys.iter().filter(|k| !k.is_black) {
+            let key_rect = Rect::from_min_size(
+                Pos2::new(rect.left() + key.x, rect.top()),
+                Vec2::new(key.width, white_height),
+            );
+            let response =
+                ui.interact(key_rect, egui::Id::new(("white", key.midi)), Sense::click());
+            painter.rect_filled(key_rect, 0.0, Color32::WHITE);
+            painter.rect_stroke(
+                key_rect,
+                0.0,
+                Stroke::new(1.0, Color32::BLACK),
+                egui::StrokeKind::Outside,
+            );
+            painter.text(
+                key_rect.center_bottom() + Vec2::new(0.0, -8.0),
+                egui::Align2::CENTER_BOTTOM,
+                midi_note_name(key.midi),
+                FontId::proportional(12.0),
+                Color32::BLACK,
+            );
+            if response.clicked() {
+                self.try_play(key.midi);
+            }
+        }
+
+        for key in keys.iter().filter(|k| k.is_black) {
+            let key_rect = Rect::from_min_size(
+                Pos2::new(rect.left() + key.x, rect.top()),
+                Vec2::new(key.width, black_height),
+            );
+            let response =
+                ui.interact(key_rect, egui::Id::new(("black", key.midi)), Sense::click());
+            painter.rect_filled(key_rect, 2.0, Color32::from_rgb(20, 20, 20));
+            painter.text(
+                key_rect.center_bottom() + Vec2::new(0.0, -6.0),
+                egui::Align2::CENTER_BOTTOM,
+                midi_note_name(key.midi),
+                FontId::proportional(10.0),
+                Color32::WHITE,
+            );
+            if response.clicked() {
+                self.try_play(key.midi);
+            }
+        }
+    }
 }
 
 impl eframe::App for SamplePianoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.heading("OpenWah – Soundbite Piano");
-            ui.label("1) Load any clip  2) We trim/use ~1 second as base note (C4)  3) Click keys to play.");
+            ui.label(
+                "1) Load any clip  2) First ~1 second becomes base note (C4)  3) Click piano keys to play.",
+            );
 
             ui.horizontal(|ui| {
                 if ui.button("Open Sound Clip...").clicked() {
@@ -233,61 +327,15 @@ impl eframe::App for SamplePianoApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.separator();
-            ui.label("Piano (C3 to C5)");
-
-            let white_keys = [0, 2, 4, 5, 7, 9, 11];
-            let key_width = 50.0;
-            let key_height = 180.0;
-
-            ui.horizontal(|ui| {
-                for octave in 0..3 {
-                    for semitone in white_keys {
-                        let midi = PIANO_START_MIDI + octave * 12 + semitone;
-                        if midi > PIANO_END_MIDI {
-                            continue;
-                        }
-                        let note_name = midi_note_name(midi);
-                        let button = egui::Button::new(note_name)
-                            .fill(Color32::WHITE)
-                            .stroke(egui::Stroke::new(1.0, Color32::BLACK))
-                            .min_size(Vec2::new(key_width, key_height));
-                        if ui.add(button).clicked() {
-                            self.try_play(midi);
-                        }
-                    }
-                }
-            });
-
-            ui.add_space(8.0);
-            ui.label("Black keys");
-            let black_offsets = [1, 3, 6, 8, 10];
-            ui.horizontal(|ui| {
-                for octave in 0..3 {
-                    for semitone in black_offsets {
-                        let midi = PIANO_START_MIDI + octave * 12 + semitone;
-                        if midi > PIANO_END_MIDI {
-                            continue;
-                        }
-                        let (rect, response) =
-                            ui.allocate_exact_size(Vec2::new(32.0, 120.0), Sense::click());
-                        ui.painter().rect_filled(rect, 2.0, Color32::BLACK);
-                        ui.painter().text(
-                            rect.center_bottom() + Vec2::new(0.0, -8.0),
-                            egui::Align2::CENTER_BOTTOM,
-                            midi_note_name(midi),
-                            egui::TextStyle::Small.resolve(ui.style()),
-                            Color32::WHITE,
-                        );
-                        if response.clicked() {
-                            self.try_play(midi);
-                        }
-                    }
-                }
-            });
+            ui.label("Piano (C3 → C5)");
+            self.draw_piano(ui);
 
             if self.sample.is_none() {
                 ui.colored_label(Color32::YELLOW, "Load a clip to enable sound.");
             }
+
+            ui.add_space(8.0);
+            ui.label("Keyboard shortcuts: A W S E D F T G Y H U J K");
         });
 
         for (key, midi) in [
@@ -310,6 +358,10 @@ impl eframe::App for SamplePianoApp {
             }
         }
     }
+}
+
+fn is_black_key(midi: i32) -> bool {
+    matches!(midi.rem_euclid(12), 1 | 3 | 6 | 8 | 10)
 }
 
 fn midi_note_name(midi: i32) -> String {

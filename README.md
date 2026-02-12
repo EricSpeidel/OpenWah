@@ -1,12 +1,13 @@
 # OpenWah
 
-A Rust desktop app that turns any short sound clip into a playable piano-like instrument.
+A Rust desktop app that turns any short sound clip into a playable piano instrument.
 
 ## What it does
 
-1. Opens a user-selected audio file (common formats supported through Symphonia codec features).
+1. Opens a user-selected audio file (common formats supported via Symphonia).
 2. Decodes and trims/pads the clip to about **1 second** to create a base note.
-3. Maps that base note to a two-octave+ piano keyboard (C3–C5), pitch-shifting per key so you can "play piano" with your own sample.
+3. Maps that base note across a piano layout (C3–C5), pitch-shifting each key by semitone distance.
+4. Lets you play notes by clicking a normal piano-style keyboard layout (black keys over white keys).
 
 ## Run
 
@@ -14,4 +15,11 @@ A Rust desktop app that turns any short sound clip into a playable piano-like in
 cargo run
 ```
 
-Use **Open Sound Clip...** to load audio, then click the on-screen keys (or use A/W/S/E... keyboard mapping around middle C).
+In the app:
+- Click **Open Sound Clip...** and choose any clip.
+- Click keys on the piano.
+- Or use keyboard shortcuts near middle C: `A W S E D F T G Y H U J K`.
+
+## Linux note
+
+On Linux, audio playback via `rodio/cpal` may require ALSA development libraries (`alsa` / `alsa-lib` package family) to be installed.
