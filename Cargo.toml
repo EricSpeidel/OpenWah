@@ -1,0 +1,12 @@
+[package]
+name = "OpenWah"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+eframe = "0.28"
+egui = "0.28"
+rfd = "0.14"
+rodio = { version = "0.19" }
+symphonia = { version = "0.5", features = ["aac", "flac", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav"] }
